@@ -3,7 +3,7 @@
 
 #include "threads/thread.h"
 
-#define PTR_SIZE 8
+#define PTR_SIZE   8
 #define EXIT_FALSE -2
 
 tid_t process_create_initd (const char *file_name);
@@ -13,6 +13,15 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
 
-struct child_list_elem* process_set_child_list(struct thread *parent, struct thread *child);
-int get_child_exit_status(struct thread* parent, tid_t child_tid);
+struct child_list_elem *process_set_child_list (struct thread *parent,
+                                                struct thread *child);
+int get_child_exit_status (struct thread *parent, tid_t child_tid);
+
+struct load_seg_args {
+  struct file *file;
+  off_t ofs;
+  size_t page_read_bytes;
+  size_t page_zero_bytes;
+};
+
 #endif /* userprog/process.h */
