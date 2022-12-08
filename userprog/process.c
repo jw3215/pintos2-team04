@@ -836,21 +836,18 @@ lazy_load_segment (struct page *page, void *aux) {
   size_t page_read_bytes = args->page_read_bytes;
   size_t page_zero_bytes = args->page_zero_bytes;
 
-  /* TODO: Load the segment from the file */
-  /* TODO: This called when the first page fault occurs on address VA. */
-  /* TODO: VA is available when calling this function. */
-
   file_seek (file, ofs);
-  lock_acquire (&file_lock);
+  // lock_acquire (&file_lock);
   if (file_read (file, page->frame->kva, page_read_bytes) !=
       (int) page_read_bytes) {
-    lock_release (&file_lock);
+    // lock_release (&file_lock);
     return false;
   }
-  lock_release (&file_lock);
+  // lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
-  free (aux);
+  //! FREE 언제함???????!!!!!!!
+  // free (aux);
 
   return true;
 }
@@ -909,19 +906,23 @@ static bool
 setup_stack (struct intr_frame *if_) {
   bool success = false;
   void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+  struct page *initial_stack_page = NULL;
 
   /* TODO: Map the stack on stack_bottom and claim the page immediately.
    * TODO: If success, set the rsp accordingly.
    * TODO: You should mark the page is stack. */
   /* TODO: Your code goes here */
 
-  success = vm_claim_page (stack_bottom);
+  vm_alloc_page (VM_ANON, stack_bottom, 1);
 
+  success = vm_claim_page (stack_bottom);
   if (success) {
     if_->rsp = USER_STACK;
   }
 
-  // todo: You should mark the page is stack. */
+  initial_stack_page = spt_find_page (&thread_current ()->spt, stack_bottom);
+  initial_stack_page->type |= VM_MARKER_0;
+
   return success;
 }
 #endif /* VM */

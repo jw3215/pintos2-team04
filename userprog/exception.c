@@ -144,6 +144,7 @@ page_fault (struct intr_frame *f) {
 #endif
 
   /* PROJECT 2: SYSTEM CALLS */
+
   if (user) {
     kern_exit (f, -1);
   }

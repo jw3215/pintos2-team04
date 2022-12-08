@@ -55,6 +55,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
   struct thread *t = thread_current ();
   struct supplemental_page_table *spt = &t->spt;
+  struct page *page_p = NULL;
 
   /* Check wheter the upage is already occupied or not. */
   if (spt_find_page (spt, upage) == NULL) {
@@ -65,7 +66,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
     /* TODO: Insert the page into the spt. */
 
     // !!! MALLOC !!!
-    struct page *page_p = malloc (sizeof (struct page));
+    page_p = malloc (sizeof (struct page));
     bool success = false;
 
     if (page_p == NULL)
@@ -88,14 +89,14 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
     success = spt_insert_page (spt, page_p);
 
-    if (!success) {
-      free (page_p);
+    if (!success)
       goto err;
-    }
 
     return true;
   }
 err:
+  if (page_p != NULL)
+    free (page_p);
   return false;
 }
 
@@ -104,7 +105,7 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
   struct page *page = NULL;
   struct page mock_page;
-  mock_page.va = va;
+  mock_page.va = pg_round_down (va);
   struct hash_elem *cur;
 
   if (cur = hash_find (&spt->page_table, &mock_page.elem)) {
@@ -198,7 +199,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr, bool user UNUSED,
                      bool write UNUSED, bool not_present UNUSED) {
   struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
   struct page *page = NULL;
-  page = spt_find_page (&spt->page_table, pg_round_down (addr));
+  page = spt_find_page (&spt->page_table, addr);
 
   if (page == NULL)
     return false;
@@ -219,7 +220,6 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va) {
   struct page *page_p = NULL;
-  vm_alloc_page (VM_ANON, va, 1);
 
   page_p = spt_find_page (&thread_current ()->spt, va);
 
@@ -247,13 +247,6 @@ vm_do_claim_page (struct page *page) {
   }
 
   return swap_in (page, frame->kva);
-  // // todo: swap_in 적용하기
-  // if (page->type != VM_UNINIT) {
-  //   return true;
-  // } else {
-  // return swap_in (page, frame->kva);
-  // uninit_page의 swap_in()은 uninit_initialize()
-  // }
 }
 
 /* Initialize new supplemental page table */
@@ -266,12 +259,77 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-                              struct supplemental_page_table *src UNUSED) {}
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+                              struct supplemental_page_table *src) {
+  struct hash_iterator iter;
+  struct page *parrent_page_p;
+  bool success = false;
+
+  hash_first (&iter, src);
+
+  while (hash_next (&iter)) {
+    struct page *page_p = malloc (sizeof (struct page));
+    if (page_p == NULL)
+      goto err;
+
+    parrent_page_p = hash_entry (hash_cur (&iter), struct page, elem);
+
+    enum vm_type type = parrent_page_p->type;
+    void *va = parrent_page_p->va;
+    bool writable = parrent_page_p->writable;
+    vm_initializer *init = NULL;
+    void *aux = NULL;
+
+    switch (VM_TYPE (type)) {
+    case VM_UNINIT:
+      init = parrent_page_p->uninit.init;
+      aux = parrent_page_p->uninit.aux;
+    case VM_ANON:
+      init = parrent_page_p->anon.init;
+      aux = parrent_page_p->anon.aux;
+      break;
+    case VM_FILE:
+      init = parrent_page_p->file.init;
+      aux = parrent_page_p->file.aux;
+      break;
+
+    default:
+      break;
+    }
+
+    success = vm_alloc_page_with_initializer (type, va, writable, init, aux);
+    if (!success)
+      goto err;
+
+    if (VM_TYPE (type) == VM_ANON) {
+      success = vm_claim_page (va);
+    }
+
+    if (!success)
+      goto err;
+
+    // void *upage =parrent_page_p->va;
+    // switch (VM_TYPE (type)) {
+    // case VM_ANON:
+    //   uninit_new (page_p, upage, init, VM_ANON, aux, anon_initializer);
+    //   break;
+    // case VM_FILE:
+    //   uninit_new (page_p, upage, init, VM_FILE, aux,
+    //   file_backed_initializer); break;
+
+    // printf ("=== %lx %d ===\n", parrent_page_p->va, type);
+    // spt_insert_page (dst, page_p);
+  }
+
+  return true;
+err:
+  return false;
+}
 
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
+  // hash_destroy (&spt->page_table, NULL);
   /* TODO: Destroy all the supplemental_page_table hold by thread and
    * TODO: writeback all the modified contents to the storage. */
 }

@@ -16,13 +16,14 @@ static void uninit_destroy (struct page *page);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations uninit_ops = {
-	.swap_in = uninit_initialize,
-	.swap_out = NULL,
-	.destroy = uninit_destroy,
-	.type = VM_UNINIT,
+    .swap_in = uninit_initialize,
+    .swap_out = NULL,
+    .destroy = uninit_destroy,
+    .type = VM_UNINIT,
 };
 
 /* DO NOT MODIFY this function */
+// clang-format off
 void
 uninit_new (struct page *page, void *va, vm_initializer *init,
 		enum vm_type type, void *aux,
@@ -41,19 +42,21 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 		}
 	};
 }
+// clang-format on
 
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
-	struct uninit_page *uninit = &page->uninit;
+  struct uninit_page *uninit = &page->uninit;
 
-	/* Fetch first, page_initialize may overwrite the values */
-	vm_initializer *init = uninit->init;
-	void *aux = uninit->aux;
+  /* Fetch first, page_initialize may overwrite the values */
+  vm_initializer *init = uninit->init;
+  void *aux = uninit->aux;
+  page->type = page->uninit.type;
 
-	/* TODO: You may need to fix this function. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+  /* TODO: You may need to fix this function. */
+  return uninit->page_initializer (page, uninit->type, kva) &&
+         (init ? init (page, aux) : true);
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
@@ -62,7 +65,7 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *uninit UNUSED = &page->uninit;
-	/* TODO: Fill this function.
-	 * TODO: If you don't have anything to do, just return. */
+  struct uninit_page *uninit UNUSED = &page->uninit;
+  /* TODO: Fill this function.
+   * TODO: If you don't have anything to do, just return. */
 }
