@@ -835,15 +835,22 @@ lazy_load_segment (struct page *page, void *aux) {
   off_t ofs = args->ofs;
   size_t page_read_bytes = args->page_read_bytes;
   size_t page_zero_bytes = args->page_zero_bytes;
+  bool has_lock = false;
+
+  if (lock_held_by_current_thread (&file_lock))
+    has_lock = true;
 
   file_seek (file, ofs);
-  // lock_acquire (&file_lock);
+  if (!has_lock)
+    lock_acquire (&file_lock);
   if (file_read (file, page->frame->kva, page_read_bytes) !=
       (int) page_read_bytes) {
-    // lock_release (&file_lock);
+    if (!has_lock)
+      lock_release (&file_lock);
     return false;
   }
-  // lock_release (&file_lock);
+  if (!has_lock)
+    lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
   //! FREE 언제함???????!!!!!!!
@@ -882,10 +889,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes,
 
     struct load_seg_args *aux = malloc (sizeof (struct load_seg_args));
 
-    *aux = (struct load_seg_args){.file = file,
-                                  .ofs = ofs,
-                                  .page_read_bytes = page_read_bytes,
-                                  .page_zero_bytes = page_zero_bytes};
+    // clang-format off
+    *aux = (struct load_seg_args){
+      .file = file,
+      .ofs = ofs,
+      .page_read_bytes = page_read_bytes,
+      .page_zero_bytes = page_zero_bytes
+      };
+    // clang-format on
 
     if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable,
                                          lazy_load_segment, aux)) {
@@ -913,7 +924,7 @@ setup_stack (struct intr_frame *if_) {
    * TODO: You should mark the page is stack. */
   /* TODO: Your code goes here */
 
-  vm_alloc_page (VM_ANON, stack_bottom, 1);
+  vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, 1);
 
   success = vm_claim_page (stack_bottom);
   if (success) {
@@ -921,7 +932,6 @@ setup_stack (struct intr_frame *if_) {
   }
 
   initial_stack_page = spt_find_page (&thread_current ()->spt, stack_bottom);
-  initial_stack_page->type |= VM_MARKER_0;
 
   return success;
 }

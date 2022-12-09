@@ -2,6 +2,7 @@
 
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "string.h"
 #include "vm/vm.h"
 #include "vm/file.h"
 #include "vm/anon.h"
@@ -85,7 +86,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
     }
 
     page_p->writable = writable;
-    page_p->type = VM_UNINIT;
 
     success = spt_insert_page (spt, page_p);
 
@@ -167,15 +167,13 @@ vm_get_frame (void) {
 
   kva = palloc_get_page (PAL_USER);
   if (kva == NULL)
-    PANIC ("vm_get_frame() todo");
-
-  frame = malloc (sizeof (frame));
-  if (frame == NULL)
-    PANIC ("vm_get_frame() todo");
+    PANIC ("vm_get_frame() todo 1");
+  // todo: swap out when page allocation is failed
 
   // !!! MALLOC !!!
-  // todo: free frame struct
-  // todo: swap out when page allocation is failed
+  frame = malloc (sizeof (frame));
+  if (frame == NULL)
+    PANIC ("vm_get_frame() todo 2");
 
   frame->kva = kva;
   frame->page = NULL;
@@ -197,12 +195,8 @@ vm_handle_wp (struct page *page UNUSED) {}
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr, bool user UNUSED,
                      bool write UNUSED, bool not_present UNUSED) {
-  struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-  struct page *page = NULL;
-  page = spt_find_page (&spt->page_table, addr);
-
-  if (page == NULL)
-    return false;
+  struct supplemental_page_table *spt = &thread_current ()->spt;
+  struct page *page = spt_find_page (&spt->page_table, addr);
 
   return vm_do_claim_page (page);
 }
@@ -219,12 +213,7 @@ vm_dealloc_page (struct page *page) {
 /* Eager Loading 기능 */
 bool
 vm_claim_page (void *va) {
-  struct page *page_p = NULL;
-
-  page_p = spt_find_page (&thread_current ()->spt, va);
-
-  if (page_p == NULL)
-    return false;
+  struct page *page_p = spt_find_page (&thread_current ()->spt, va);
 
   return vm_do_claim_page (page_p);
 }
@@ -232,6 +221,9 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+  if (page == NULL)
+    return false;
+
   struct frame *frame = vm_get_frame ();
   struct thread *t = thread_current ();
   bool success = false;
@@ -268,57 +260,51 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
   hash_first (&iter, src);
 
   while (hash_next (&iter)) {
-    struct page *page_p = malloc (sizeof (struct page));
-    if (page_p == NULL)
-      goto err;
-
     parrent_page_p = hash_entry (hash_cur (&iter), struct page, elem);
 
-    enum vm_type type = parrent_page_p->type;
+    enum vm_type p_type = VM_TYPE (parrent_page_p->operations->type);
     void *va = parrent_page_p->va;
+    void *p_aux = NULL;
     bool writable = parrent_page_p->writable;
     vm_initializer *init = NULL;
-    void *aux = NULL;
 
-    switch (VM_TYPE (type)) {
+    int TMP_SIZE = 32;   // todo: struct load_seg_args 이외 경우 대비하기
+    void *aux = malloc (TMP_SIZE);
+
+    switch (p_type) {
     case VM_UNINIT:
       init = parrent_page_p->uninit.init;
-      aux = parrent_page_p->uninit.aux;
+      p_aux = parrent_page_p->uninit.aux;
+      break;
     case VM_ANON:
       init = parrent_page_p->anon.init;
-      aux = parrent_page_p->anon.aux;
+      p_aux = parrent_page_p->anon.aux;
       break;
     case VM_FILE:
       init = parrent_page_p->file.init;
-      aux = parrent_page_p->file.aux;
+      p_aux = parrent_page_p->file.aux;
       break;
 
     default:
-      break;
+      PANIC ("unexpected page type!");
+      goto err;
     }
 
-    success = vm_alloc_page_with_initializer (type, va, writable, init, aux);
+    if (p_aux != NULL)
+      memcpy (aux, p_aux, TMP_SIZE);
+    // todo: stack 마킹은?
+    success = vm_alloc_page_with_initializer (page_get_type (parrent_page_p),
+                                              va, writable, init, aux);
     if (!success)
       goto err;
 
-    if (VM_TYPE (type) == VM_ANON) {
+    if (p_type != VM_UNINIT) {
       success = vm_claim_page (va);
+      if (!success)
+        goto err;
+
+      memcpy (spt_find_page (src, va)->va, parrent_page_p->frame->kva, PGSIZE);
     }
-
-    if (!success)
-      goto err;
-
-    // void *upage =parrent_page_p->va;
-    // switch (VM_TYPE (type)) {
-    // case VM_ANON:
-    //   uninit_new (page_p, upage, init, VM_ANON, aux, anon_initializer);
-    //   break;
-    // case VM_FILE:
-    //   uninit_new (page_p, upage, init, VM_FILE, aux,
-    //   file_backed_initializer); break;
-
-    // printf ("=== %lx %d ===\n", parrent_page_p->va, type);
-    // spt_insert_page (dst, page_p);
   }
 
   return true;
@@ -326,12 +312,17 @@ err:
   return false;
 }
 
+static void
+clear_page_resource (struct hash_elem *e, void *aux) {
+  struct page *page_p = hash_entry (e, struct page, elem);
+
+  destroy (page_p);
+}
+
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
-  // hash_destroy (&spt->page_table, NULL);
-  /* TODO: Destroy all the supplemental_page_table hold by thread and
-   * TODO: writeback all the modified contents to the storage. */
+  hash_clear (&spt->page_table, clear_page_resource);
 }
 
 unsigned

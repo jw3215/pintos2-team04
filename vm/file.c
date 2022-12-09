@@ -45,7 +45,16 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-  struct file_page *file_page UNUSED = &page->file;
+  struct file_page *file_page = &page->file;
+  void *aux = file_page->aux;
+  struct frame *frame_p = page->frame;
+
+  if (page != NULL)
+    free (page);
+  if (frame_p != NULL)
+    free (frame_p);
+  if (aux != NULL)
+    free (aux);
 }
 
 /* Do the mmap */
