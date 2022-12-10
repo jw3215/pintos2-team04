@@ -68,8 +68,6 @@ uninit_destroy (struct page *page) {
   void *aux = uninit->aux;
   struct frame *frame_p = page->frame;
 
-  if (page != NULL)
-    free (page);
   if (frame_p != NULL)
     free (frame_p);
   if (aux != NULL)

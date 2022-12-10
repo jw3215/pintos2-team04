@@ -12,6 +12,8 @@ unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_,
                 void *aux UNUSED);
 
+#define MAX_STACK_SIZE (1 << 20)
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -75,13 +77,14 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
     switch (VM_TYPE (type)) {
     case VM_ANON:
-      uninit_new (page_p, upage, init, VM_ANON, aux, anon_initializer);
+      uninit_new (page_p, upage, init, type, aux, anon_initializer);
       break;
     case VM_FILE:
-      uninit_new (page_p, upage, init, VM_FILE, aux, file_backed_initializer);
+      uninit_new (page_p, upage, init, type, aux, file_backed_initializer);
       break;
 
     default:
+      PANIC ("unknown page type");
       goto err;
     }
 
@@ -185,7 +188,23 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {}
+vm_stack_growth (void *addr) {
+  struct supplemental_page_table *spt = &thread_current ()->spt;
+  void *cur = pg_round_down (addr);
+
+  while (!spt_find_page (spt, cur)) {
+    vm_alloc_page (VM_ANON | VM_MARKER_0, cur, true);
+    vm_claim_page (cur);
+    cur += PGSIZE;
+  }
+
+  struct hash_iterator i;
+
+  hash_first (&i, &spt->page_table);
+  while (hash_next (&i)) {
+    struct page *f = hash_entry (hash_cur (&i), struct page, elem);
+  }
+}
 
 /* Handle the fault on write_protected page */
 static bool
@@ -193,10 +212,19 @@ vm_handle_wp (struct page *page UNUSED) {}
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr, bool user UNUSED,
-                     bool write UNUSED, bool not_present UNUSED) {
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user UNUSED,
+                     bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current ()->spt;
   struct page *page = spt_find_page (&spt->page_table, addr);
+
+  if (!not_present && write)
+    return false;
+
+  if (page == NULL && addr < USER_STACK &&
+      addr >= USER_STACK - MAX_STACK_SIZE && f->rsp - 8 == addr) {
+    vm_stack_growth (addr);
+    return true;
+  }
 
   return vm_do_claim_page (page);
 }
@@ -303,7 +331,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
       if (!success)
         goto err;
 
-      memcpy (spt_find_page (src, va)->va, parrent_page_p->frame->kva, PGSIZE);
+      memcpy (va, parrent_page_p->frame->kva, PGSIZE);
     }
   }
 
@@ -316,7 +344,7 @@ static void
 clear_page_resource (struct hash_elem *e, void *aux) {
   struct page *page_p = hash_entry (e, struct page, elem);
 
-  destroy (page_p);
+  vm_dealloc_page (page_p);
 }
 
 /* Free the resource hold by the supplemental page table */

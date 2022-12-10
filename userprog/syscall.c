@@ -221,6 +221,8 @@ read_handler (struct intr_frame *f) {
     kern_exit (f, -1);
   if (!address_check (buffer))
     kern_exit (f, -1);
+  if (!spt_find_page (&thread_current ()->spt.page_table, buffer)->writable)
+    kern_exit (f, -1);
 
   struct file *file_ = fd_table_get_file (fd);
   if (file_ == NULL)
