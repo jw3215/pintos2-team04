@@ -29,11 +29,13 @@ bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
   /* Set up the handler */
   page->operations = &anon_ops;
+  page->type = type;
 
   struct anon_page *anon_page = &page->anon;
   anon_page->init = page->uninit.init;
   anon_page->aux = page->uninit.aux;
-  // todo
+  // ! 별도의 initializer를 실행하고 싶지않다면 false를 리턴하자
+  // ! RAX에 뭐든 들어갈 것이기 때문에 웬만하면 true 리턴함...
   // return true;
 }
 

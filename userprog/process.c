@@ -853,9 +853,6 @@ lazy_load_segment (struct page *page, void *aux) {
     lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
-  //! FREE 언제함???????!!!!!!!
-  // free (aux);
-
   return true;
 }
 
@@ -924,12 +921,12 @@ setup_stack (struct intr_frame *if_) {
    * TODO: You should mark the page is stack. */
   /* TODO: Your code goes here */
 
-  vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, 1);
+  success = vm_alloc_stack_page (stack_bottom);
 
-  success = vm_claim_page (stack_bottom);
-  if (success) {
-    if_->rsp = USER_STACK;
-  }
+  if (!success)
+    PANIC ("STACK ALLOCATION FAIL!");
+
+  if_->rsp = USER_STACK;
 
   initial_stack_page = spt_find_page (&thread_current ()->spt, stack_bottom);
 

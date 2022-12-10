@@ -89,6 +89,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
     }
 
     page_p->writable = writable;
+    page_p->type = type;
 
     success = spt_insert_page (spt, page_p);
 
@@ -186,15 +187,31 @@ vm_get_frame (void) {
   return frame;
 }
 
+bool
+vm_alloc_stack_page (void *addr) {
+  ASSERT (pg_ofs (addr) == 0);
+
+  if (!vm_alloc_page (VM_ANON | VM_MARKER_0, addr, true))
+    return false;
+
+  if (!vm_claim_page (addr))
+    return false;
+
+  return true;
+}
+
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr) {
+  bool success;
   struct supplemental_page_table *spt = &thread_current ()->spt;
   void *cur = pg_round_down (addr);
 
   while (!spt_find_page (spt, cur)) {
-    vm_alloc_page (VM_ANON | VM_MARKER_0, cur, true);
-    vm_claim_page (cur);
+    success = vm_alloc_stack_page (cur);
+    if (!success)
+      PANIC ("stack allocation fail!");
+
     cur += PGSIZE;
   }
 
@@ -220,11 +237,13 @@ vm_try_handle_fault (struct intr_frame *f, void *addr, bool user UNUSED,
   if (!not_present && write)
     return false;
 
-  if (page == NULL && addr < USER_STACK &&
-      addr >= USER_STACK - MAX_STACK_SIZE && f->rsp - 8 == addr) {
+  // clang-format off
+  if (spt_find_page (&spt->page_table, f->rsp) == NULL 
+   && addr < USER_STACK && addr >= USER_STACK - MAX_STACK_SIZE) {
     vm_stack_growth (addr);
     return true;
   }
+  // clang-format on
 
   return vm_do_claim_page (page);
 }
