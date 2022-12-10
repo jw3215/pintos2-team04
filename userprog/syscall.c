@@ -313,9 +313,29 @@ close_handler (struct intr_frame *f) {
   fd_table_remove (fd);
 }
 
-/* PROJECT3 ~~~~~ */
+/* PROJECT3 */
 void
-mmap_handler (struct intr_frame *f) {}
+mmap_handler (struct intr_frame *f) {
+  void *addr = F_ARG1;
+  size_t length = F_ARG2;
+  int writable = F_ARG3;
+  int fd = F_ARG4;
+  off_t offset = F_ARG5;
+
+  bool success;
+
+  // clang-format off
+  if( addr == NULL || pg_ofs(addr) != 0
+   || length == 0
+   || fd == 0 || fd == 1 || fd == 2){
+    PANIC("MMAP FAIL!!!!");
+  }
+  // clang-format on
+
+  struct file *file = fd_table_get_file (fd);
+  // success = mmap_load (file, offset, addr, length, zero_bytes, writable);
+  success = do_mmap (addr, length, writable, file, offset);
+}
 
 void
 mnumap_handler (struct intr_frame *f) {}

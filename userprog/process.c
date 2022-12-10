@@ -233,6 +233,12 @@ __do_fork (void **aux) {
     (current->fd_table)[i] = dup_f;
   }
 
+  if (parent->my_exec_file != NULL) {
+    lock_acquire (&file_lock);
+    current->my_exec_file = file_duplicate (parent->my_exec_file);
+    lock_release (&file_lock);
+  } /* Project2: System Calls */
+
   process_init ();
 
   /* Finally, switch to the newly created process. */

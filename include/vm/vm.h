@@ -47,9 +47,9 @@ struct page {
   void *va;            /* Address in terms of user space */
   struct frame *frame; /* Back reference for frame */
   bool writable;
-  enum vm_type type;
 
   /* Your implementation */
+  enum vm_type type;
   struct hash_elem elem;
 
   /* Per-type data are binded into the union.
