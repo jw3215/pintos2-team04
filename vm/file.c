@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
 
@@ -63,6 +64,7 @@ file_backed_destroy (struct page *page) {
 
 static bool
 mmap_lazy_load (struct page *page, void *aux) {
+  struct list *mapped_pages = &thread_current ()->spt.mapped_pages;
   struct load_seg_args *args = aux;
   struct file *file = args->file;
   off_t ofs = args->ofs;
@@ -75,14 +77,9 @@ mmap_lazy_load (struct page *page, void *aux) {
   lock_acquire (&file_lock);
   off_t res = file_read (file, page->frame->kva, page_read_bytes);
   page->mmap_length = res;
-  // hex_dump (0, page->frame->kva, 800, true);
-  // if (res != (int) page_read_bytes) {
-  //   lock_release (&file_lock);
-  //   printf ("<3>-----%d-------------\n", res);
-  //   return false;
-  // }
   lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+  list_push_back (mapped_pages, &page->mmap_elem);
 
   return true;
 }
@@ -91,12 +88,6 @@ mmap_lazy_load (struct page *page, void *aux) {
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file,
          off_t offset) {
-  // printf ("===============\n");
-  // printf ("file: 0x%lx, ofs: %d, upage: %lx\n", file, ofs, upage);
-  // printf ("read_bytes: %d, zero_bytes: %d, writable: %d\n", read_bytes,
-  //         zero_bytes, writable);
-  // printf ("===============\n");
-
   ASSERT (pg_ofs (addr) == 0);
   ASSERT (offset % PGSIZE == 0);
 
@@ -104,7 +95,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file,
   size_t zero_bytes = ROUND_UP (length, PGSIZE) - length;
   void *cur = addr;
 
-  struct supplemental_page_table *spt = &thread_current ()->spt.page_table;
+  struct supplemental_page_table *spt = &thread_current ()->spt;
   for (size_t cur_ = 0; cur_ < length; cur_ += PGSIZE)
     if (spt_find_page (spt, addr + cur_))
       return NULL;
@@ -144,7 +135,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-  struct supplemental_page_table *spt = &thread_current ()->spt.page_table;
+  struct supplemental_page_table *spt = &thread_current ()->spt;
   struct page *page_p = spt_find_page (spt, addr);
   void *cur = addr;
   size_t remain_length;
@@ -161,10 +152,14 @@ do_munmap (void *addr) {
       struct file *file = args->file;
       off_t ofs = args->ofs;
 
-      file_write_at (file, cur, write_bytes, ofs);
+      if (pml4_is_dirty (thread_current ()->pml4, cur))
+        file_write_at (file, cur, write_bytes, ofs);
     }
 
     cur += PGSIZE;
+    if (page_p->operations->type == VM_FILE)
+      list_remove (&page_p->mmap_elem);
+
     spt_remove_page (spt, page_p);
     page_p = spt_find_page (spt, cur);
   }

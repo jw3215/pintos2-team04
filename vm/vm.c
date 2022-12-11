@@ -233,13 +233,13 @@ bool
 vm_try_handle_fault (struct intr_frame *f, void *addr, bool user UNUSED,
                      bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current ()->spt;
-  struct page *page = spt_find_page (&spt->page_table, addr);
+  struct page *page = spt_find_page (spt, addr);
 
   if (!not_present && write)
     return false;
 
   // clang-format off
-  if (spt_find_page (&spt->page_table, f->rsp) == NULL 
+  if (spt_find_page (spt, f->rsp) == NULL 
    && addr < USER_STACK && addr >= USER_STACK - MAX_STACK_SIZE) {
     vm_stack_growth (addr);
     return true;
@@ -295,6 +295,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
   /* Project 3 - Virtual Memory */
   struct thread *t = thread_current ();
   hash_init (&t->spt.page_table, page_hash, page_less, NULL);
+  list_init (&t->spt.mapped_pages);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -370,6 +371,16 @@ clear_page_resource (struct hash_elem *e, void *aux) {
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
+  struct list *mapped_pages = &thread_current ()->spt.mapped_pages;
+
+  while (!list_empty (mapped_pages)) {
+    struct list_elem *cur = list_begin (mapped_pages);
+    if (cur == NULL)
+      break;
+    struct page *page_p = list_entry (cur, struct page, mmap_elem);
+    do_munmap (page_p->va);
+  }
+
   hash_clear (&spt->page_table, clear_page_resource);
 }
 

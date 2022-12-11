@@ -52,6 +52,7 @@ struct page {
   enum vm_type type;
   size_t mmap_length;
   struct hash_elem elem;
+  struct list_elem mmap_elem;
 
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
@@ -93,6 +94,7 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
   struct hash page_table;
+  struct list mapped_pages;
 };
 
 #include "threads/thread.h"
