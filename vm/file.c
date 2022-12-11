@@ -70,14 +70,11 @@ mmap_lazy_load (struct page *page, void *aux) {
   size_t page_zero_bytes = args->page_zero_bytes;
   bool has_lock = false;
 
-  // printf ("<1>------------------\n");
-
   file_seek (file, ofs);
-
-  // printf ("<2>---------%d------\n", page_read_bytes);
 
   lock_acquire (&file_lock);
   off_t res = file_read (file, page->frame->kva, page_read_bytes);
+  page->mmap_length = res;
   // hex_dump (0, page->frame->kva, 800, true);
   // if (res != (int) page_read_bytes) {
   //   lock_release (&file_lock);
@@ -86,7 +83,6 @@ mmap_lazy_load (struct page *page, void *aux) {
   // }
   lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
-  // printf ("<4>------------------\n");
 
   return true;
 }
@@ -106,16 +102,21 @@ do_mmap (void *addr, size_t length, int writable, struct file *file,
 
   size_t read_bytes = length;
   size_t zero_bytes = ROUND_UP (length, PGSIZE) - length;
+  void *cur = addr;
+
+  struct supplemental_page_table *spt = &thread_current ()->spt.page_table;
+  for (size_t cur_ = 0; cur_ < length; cur_ += PGSIZE)
+    if (spt_find_page (spt, addr + cur_))
+      return NULL;
 
   while (read_bytes > 0 || zero_bytes > 0) {
-    /* Do calculate how to fill this page.
-     * We will read PAGE_READ_BYTES bytes from FILE
-     * and zero the final PAGE_ZERO_BYTES bytes. */
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
     struct load_seg_args *aux = malloc (sizeof (struct load_seg_args));
 
+    if (aux == NULL)
+      return NULL;
     // clang-format off
     *aux = (struct load_seg_args){
       .file = file,
@@ -125,21 +126,46 @@ do_mmap (void *addr, size_t length, int writable, struct file *file,
       };
     // clang-format on
 
-    if (!vm_alloc_page_with_initializer (VM_FILE, addr, writable,
-                                         mmap_lazy_load, aux)) {
-      return false;
+    if (!vm_alloc_page_with_initializer (VM_FILE, cur, writable, mmap_lazy_load,
+                                         aux)) {
+      return NULL;
     }
 
     /* Advance. */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     offset += PGSIZE;
-    addr += PGSIZE;
+    cur += PGSIZE;
   }
-  // printf ("###########\n");
-  return true;
+
+  return addr;
 }
 
 /* Do the munmap */
 void
-do_munmap (void *addr) {}
+do_munmap (void *addr) {
+  struct supplemental_page_table *spt = &thread_current ()->spt.page_table;
+  struct page *page_p = spt_find_page (spt, addr);
+  void *cur = addr;
+  size_t remain_length;
+  size_t write_bytes;
+
+  while (page_p) {
+    remain_length = page_p->mmap_length;
+    write_bytes = remain_length > 0 && remain_length < PGSIZE   //
+                      ? remain_length
+                      : PGSIZE;
+
+    if (VM_TYPE (page_p->type) == VM_FILE) {
+      struct load_seg_args *args = (struct load_seg_args *) (page_p->file.aux);
+      struct file *file = args->file;
+      off_t ofs = args->ofs;
+
+      file_write_at (file, cur, write_bytes, ofs);
+    }
+
+    cur += PGSIZE;
+    spt_remove_page (spt, page_p);
+    page_p = spt_find_page (spt, cur);
+  }
+}

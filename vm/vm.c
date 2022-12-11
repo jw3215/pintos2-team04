@@ -89,7 +89,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
     }
 
     page_p->writable = writable;
-    page_p->type = type;
+    page_p->type = VM_UNINIT;
 
     success = spt_insert_page (spt, page_p);
 
@@ -135,8 +135,9 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+  void *res;
+  res = hash_delete (&spt->page_table, &page->elem);
   vm_dealloc_page (page);
-  return true;
 }
 
 /* Get the struct frame, that will be evicted. */

@@ -50,6 +50,7 @@ struct page {
 
   /* Your implementation */
   enum vm_type type;
+  size_t mmap_length;
   struct hash_elem elem;
 
   /* Per-type data are binded into the union.

@@ -60,7 +60,7 @@ struct system_call syscall_list[] = {
     {SYS_FILESIZE, filesize_handler}, {SYS_READ, read_handler},
     {SYS_WRITE, write_handler},       {SYS_SEEK, seek_handler},
     {SYS_TELL, tell_handler},         {SYS_CLOSE, close_handler},
-    {SYS_MMAP, mmap_handler},         {SYS_MUNMAP, mnumap_handler},
+    {SYS_MMAP, mmap_handler},         {SYS_MUNMAP, munmap_handler},
     {SYS_CHDIR, chdir_handler},       {SYS_MKDIR, mkdir_handler},
     {SYS_READDIR, readdir_handler},   {SYS_ISDIR, isdir_handler},
     {SYS_INUMBER, inumber_handler},   {SYS_SYMLINK, symlink_handler},
@@ -322,23 +322,48 @@ mmap_handler (struct intr_frame *f) {
   int fd = F_ARG4;
   off_t offset = F_ARG5;
 
-  bool success;
+  bool success = true;
+
+  if (is_kernel_vaddr (addr) || is_kernel_vaddr (length) ||
+      is_kernel_vaddr (addr + length)) {
+    success = false;
+    goto result;
+  }
 
   // clang-format off
   if( addr == NULL || pg_ofs(addr) != 0
    || length == 0
-   || fd == 0 || fd == 1 || fd == 2){
-    PANIC("MMAP FAIL!!!!");
+   || fd == 0 || fd == 1 || fd == 2
+   || pg_ofs(offset) != 0) {
+    success = false;
+    goto result;
   }
   // clang-format on
 
-  struct file *file = fd_table_get_file (fd);
-  // success = mmap_load (file, offset, addr, length, zero_bytes, writable);
-  success = do_mmap (addr, length, writable, file, offset);
+  struct file *old_file = fd_table_get_file (fd);
+  if (old_file == NULL) {
+    success = false;
+    goto result;
+  }
+
+  struct file *file = file_reopen (old_file);
+  if (file == NULL) {
+    success = false;
+    goto result;
+  }
+
+result:
+  if (success)
+    F_RAX = do_mmap (addr, length, writable, file, offset);
+  else
+    F_RAX = NULL;
 }
 
 void
-mnumap_handler (struct intr_frame *f) {}
+munmap_handler (struct intr_frame *f) {
+  void *addr = F_ARG1;
+  do_munmap (addr);
+}
 
 void
 chdir_handler (struct intr_frame *f) {}
@@ -376,7 +401,7 @@ address_check (char *ptr) {
     return false;
 
   if (spt_find_page (&curr->spt, ptr) == NULL)
-    return vm_claim_page (ptr);
+    return false;
 
   return true;
 }
