@@ -210,7 +210,6 @@ vm_get_frame (void) {
   void *kva = NULL;
 
   kva = palloc_get_page (PAL_USER);
-  // todo: swap out when page allocation is failed
   if (kva == NULL) {
     frame = vm_evict_frame ();
   } else {
@@ -323,6 +322,7 @@ vm_do_claim_page (struct page *page) {
   frame->page = page;
   page->frame = frame;
   /* TODO: Insert page table entry to map page's VA to frame's PA. */
+  // printf ("%lx\n", page->va);
   success = pml4_set_page (t->pml4, page->va, frame->kva, page->writable);
 
   if (!success) {

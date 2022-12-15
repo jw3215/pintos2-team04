@@ -22,6 +22,7 @@ struct load_seg_args {
   off_t ofs;
   size_t page_read_bytes;
   size_t page_zero_bytes;
+  size_t read_bytes;
 };
 
 #endif /* userprog/process.h */

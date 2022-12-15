@@ -41,12 +41,33 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
   struct file_page *file_page UNUSED = &page->file;
+  printf ("FILE SWAP IN!\n");
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-  struct file_page *file_page UNUSED = &page->file;
+  struct file_page *file_page = &page->file;
+  struct list *mapped_pages = &thread_current ()->spt.mapped_pages;
+
+  // printf ("============ Before Traverse ============\n");
+  // for (struct list_elem *cur = list_begin (mapped_pages);
+  //      cur != list_end (mapped_pages); cur = list_next (cur)) {
+
+  //   struct page *f = list_entry (cur, struct page, mmap_elem);
+  //   printf ("%d\n", f->mmap_length);
+  // }
+
+  // printf ("<1> is dirty: %d\n", pml4_is_dirty (page->pml4, page->va));
+  // pml4_set_dirty (page->pml4, page->va, true);
+  // printf ("<2> is dirty: %d\n", pml4_is_dirty (page->pml4, page->va));
+  // do_munmap (page->va);
+
+  // page->frame = NULL;
+  // pml4_clear_page (page->pml4, page->va);
+  // todo: exception 처리하기
+  // printf ("FILE SWAP OUT!\n");
+  return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -70,13 +91,14 @@ mmap_lazy_load (struct page *page, void *aux) {
   off_t ofs = args->ofs;
   size_t page_read_bytes = args->page_read_bytes;
   size_t page_zero_bytes = args->page_zero_bytes;
+  size_t read_bytes = args->read_bytes;
   bool has_lock = false;
 
   file_seek (file, ofs);
 
   lock_acquire (&file_lock);
   off_t res = file_read (file, page->frame->kva, page_read_bytes);
-  page->mmap_length = res;
+  page->mmap_length = read_bytes;
   lock_release (&file_lock);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
   list_push_back (mapped_pages, &page->mmap_elem);
@@ -113,7 +135,8 @@ do_mmap (void *addr, size_t length, int writable, struct file *file,
       .file = file,
       .ofs = offset,
       .page_read_bytes = page_read_bytes,
-      .page_zero_bytes = page_zero_bytes
+      .page_zero_bytes = page_zero_bytes,
+      .read_bytes = read_bytes
       };
     // clang-format on
 
@@ -138,11 +161,11 @@ do_munmap (void *addr) {
   struct supplemental_page_table *spt = &thread_current ()->spt;
   struct page *page_p = spt_find_page (spt, addr);
   void *cur = addr;
-  size_t remain_length;
+  long remain_length;
   size_t write_bytes;
 
-  while (page_p) {
-    remain_length = page_p->mmap_length;
+  remain_length = page_p->mmap_length;
+  while (remain_length > 0) {
     write_bytes = remain_length > 0 && remain_length < PGSIZE   //
                       ? remain_length
                       : PGSIZE;
@@ -162,5 +185,7 @@ do_munmap (void *addr) {
 
     spt_remove_page (spt, page_p);
     page_p = spt_find_page (spt, cur);
+
+    remain_length -= PGSIZE;
   }
 }
