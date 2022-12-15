@@ -54,6 +54,8 @@ struct page {
   struct hash_elem elem;
   struct list_elem mmap_elem;
 
+  uint64_t *pml4; /* Page map level 4 */
+
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
   union {

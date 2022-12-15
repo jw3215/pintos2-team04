@@ -857,6 +857,7 @@ lazy_load_segment (struct page *page, void *aux) {
   }
   if (!has_lock)
     lock_release (&file_lock);
+  ASSERT (page->frame->kva != NULL);
   memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
   return true;
